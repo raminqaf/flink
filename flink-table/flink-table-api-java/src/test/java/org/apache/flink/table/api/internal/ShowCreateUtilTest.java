@@ -283,6 +283,7 @@ class ShowCreateUtilTest {
                         null,
                         IntervalFreshness.ofMinute("1"),
                         RefreshMode.CONTINUOUS,
+                        "SELECT 1",
                         "SELECT 1"),
                 "CREATE %sMATERIALIZED TABLE `catalogName`.`dbName`.`materializedTableName`\n"
                         + "FRESHNESS = INTERVAL '1' MINUTE\n"
@@ -298,6 +299,7 @@ class ShowCreateUtilTest {
                         null,
                         IntervalFreshness.ofMinute("1"),
                         RefreshMode.CONTINUOUS,
+                        "SELECT 1",
                         "SELECT 1"),
                 "CREATE %sMATERIALIZED TABLE `catalogName`.`dbName`.`materializedTableName` (\n"
                         + "  CONSTRAINT `pk` PRIMARY KEY (`id`) NOT ENFORCED\n"
@@ -315,6 +317,7 @@ class ShowCreateUtilTest {
                         TableDistribution.of(TableDistribution.Kind.HASH, 5, List.of("id")),
                         IntervalFreshness.ofMinute("3"),
                         RefreshMode.FULL,
+                        "SELECT id, name FROM tbl_a",
                         "SELECT id, name FROM tbl_a"),
                 "CREATE %sMATERIALIZED TABLE `catalogName`.`dbName`.`materializedTableName`\n"
                         + "COMMENT 'Materialized table comment'\n"
@@ -373,7 +376,8 @@ class ShowCreateUtilTest {
             TableDistribution distribution,
             IntervalFreshness freshness,
             RefreshMode refreshMode,
-            String definitionQuery) {
+            String originalQuery,
+            String expandedQuery) {
         return new ResolvedCatalogMaterializedTable(
                 CatalogMaterializedTable.newBuilder()
                         .comment(comment)
@@ -382,7 +386,8 @@ class ShowCreateUtilTest {
                         .schema(Schema.newBuilder().fromResolvedSchema(resolvedSchema).build())
                         .freshness(freshness)
                         .refreshMode(refreshMode)
-                        .definitionQuery(definitionQuery)
+                        .originalQuery(originalQuery)
+                        .expandedQuery(expandedQuery)
                         .logicalRefreshMode(LogicalRefreshMode.AUTOMATIC)
                         .refreshStatus(RefreshStatus.ACTIVATED)
                         .build(),

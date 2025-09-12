@@ -335,7 +335,7 @@ class MaterializedTableStatementParserTest {
     @Test
     void testAlterMaterializedTableAsQuery() {
         final String sql = "ALTER MATERIALIZED TABLE tbl1 AS SELECT * FROM t";
-        final String expected = "ALTER MATERIALIZED TABLE `TBL1` AS SELECT *\nFROM `T`";
+        final String expected = "ALTER MATERIALIZED TABLE `TBL1`\nAS\nSELECT *\nFROM `T`";
         sql(sql).ok(expected);
 
         final String sql2 = "ALTER MATERIALIZED TABLE tbl1 AS SELECT * FROM t A^S^";
@@ -376,6 +376,78 @@ class MaterializedTableStatementParserTest {
     void testDropTemporaryMaterializedTable() {
         final String sql = "DROP TEMPORARY ^MATERIALIZED^ TABLE tbl1";
         sql(sql).fails("DROP TEMPORARY MATERIALIZED TABLE is not supported.");
+    }
+
+    @Test
+    void testCreateOrAlterMaterializedTable() {
+        final String sql =
+                "CREATE OR ALTER MATERIALIZED TABLE tbl1\n"
+                        + "(\n"
+                        + "   PRIMARY KEY (a, b)\n"
+                        + ")\n"
+                        + "COMMENT 'table comment'\n"
+                        + "PARTITIONED BY (a, h)\n"
+                        + "WITH (\n"
+                        + "  'group.id' = 'latest', \n"
+                        + "  'kafka.topic' = 'log.test'\n"
+                        + ")\n"
+                        + "FRESHNESS = INTERVAL '3' MINUTE\n"
+                        + "AS SELECT a, b, h, t m FROM source";
+        final String expected =
+                "CREATE OR ALTER MATERIALIZED TABLE `TBL1`\n"
+                        + "(\n"
+                        + "  PRIMARY KEY (`A`, `B`)\n"
+                        + ")\n"
+                        + "COMMENT 'table comment'\n"
+                        + "PARTITIONED BY (`A`, `H`)\n"
+                        + "WITH (\n"
+                        + "  'group.id' = 'latest',\n"
+                        + "  'kafka.topic' = 'log.test'\n"
+                        + ")\n"
+                        + "FRESHNESS = INTERVAL '3' MINUTE\n"
+                        + "AS\n"
+                        + "SELECT `A`, `B`, `H`, `T` AS `M`\n"
+                        + "FROM `SOURCE`";
+        sql(sql).ok(expected);
+
+        final String sql2 =
+                "CREATE OR ALTER MATERIALIZED TABLE tbl1\n"
+                        + "(\n"
+                        + "   PRIMARY KEY (a, b)\n"
+                        + ")\n"
+                        + "COMMENT 'table comment'\n"
+                        + "FRESHNESS = INTERVAL '3' MINUTE\n"
+                        + "REFRESH_MODE = FULL\n"
+                        + "AS SELECT a, b, h, t m FROM source";
+        final String expected2 =
+                "CREATE OR ALTER MATERIALIZED TABLE `TBL1`\n"
+                        + "(\n"
+                        + "  PRIMARY KEY (`A`, `B`)\n"
+                        + ")\n"
+                        + "COMMENT 'table comment'\n"
+                        + "FRESHNESS = INTERVAL '3' MINUTE\n"
+                        + "REFRESH_MODE = FULL\n"
+                        + "AS\n"
+                        + "SELECT `A`, `B`, `H`, `T` AS `M`\n"
+                        + "FROM `SOURCE`";
+
+        sql(sql2).ok(expected2);
+
+        final String sql3 =
+                "CREATE OR ALTER MATERIALIZED TABLE tbl1\n"
+                        + "COMMENT 'table comment'\n"
+                        + "FRESHNESS = INTERVAL '3' DAY\n"
+                        + "REFRESH_MODE = FULL\n"
+                        + "AS SELECT a, b, h, t m FROM source";
+        final String expected3 =
+                "CREATE OR ALTER MATERIALIZED TABLE `TBL1`\n"
+                        + "COMMENT 'table comment'\n"
+                        + "FRESHNESS = INTERVAL '3' DAY\n"
+                        + "REFRESH_MODE = FULL\n"
+                        + "AS\n"
+                        + "SELECT `A`, `B`, `H`, `T` AS `M`\n"
+                        + "FROM `SOURCE`";
+        sql(sql3).ok(expected3);
     }
 
     public SqlParserFixture fixture() {

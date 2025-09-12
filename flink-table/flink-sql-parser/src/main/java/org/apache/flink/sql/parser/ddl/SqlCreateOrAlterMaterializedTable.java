@@ -43,11 +43,14 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-/** CREATE MATERIALIZED TABLE DDL sql call. */
-public class SqlCreateMaterializedTable extends SqlCreate {
+/** CREATE [OR ALTER] MATERIALIZED TABLE DDL sql call. */
+public class SqlCreateOrAlterMaterializedTable extends SqlCreate {
 
-    public static final SqlSpecialOperator OPERATOR =
+    public static final SqlSpecialOperator CREATE_OPERATOR =
             new SqlSpecialOperator("CREATE MATERIALIZED TABLE", SqlKind.CREATE_TABLE);
+
+    public static final SqlSpecialOperator CREATE_OR_ALTER_OPERATOR =
+            new SqlSpecialOperator("CREATE OR ALTER MATERIALIZED TABLE", SqlKind.OTHER_DDL);
 
     private final SqlIdentifier tableName;
 
@@ -67,7 +70,9 @@ public class SqlCreateMaterializedTable extends SqlCreate {
 
     private final SqlNode asQuery;
 
-    public SqlCreateMaterializedTable(
+    private final boolean isOrAlter;
+
+    public SqlCreateOrAlterMaterializedTable(
             SqlParserPos pos,
             SqlIdentifier tableName,
             @Nullable SqlTableConstraint tableConstraint,
@@ -77,11 +82,12 @@ public class SqlCreateMaterializedTable extends SqlCreate {
             SqlNodeList propertyList,
             SqlIntervalLiteral freshness,
             @Nullable SqlLiteral refreshMode,
-            SqlNode asQuery) {
-        super(OPERATOR, pos, false, false);
+            SqlNode asQuery,
+            boolean isOrAlter) {
+        super(isOrAlter ? CREATE_OR_ALTER_OPERATOR : CREATE_OPERATOR, pos, false, false);
         this.tableName = requireNonNull(tableName, "tableName should not be null");
-        this.tableConstraint = tableConstraint;
         this.comment = comment;
+        this.tableConstraint = tableConstraint;
         this.distribution = distribution;
         this.partitionKeyList =
                 requireNonNull(partitionKeyList, "partitionKeyList should not be null");
@@ -89,11 +95,12 @@ public class SqlCreateMaterializedTable extends SqlCreate {
         this.freshness = requireNonNull(freshness, "freshness should not be null");
         this.refreshMode = refreshMode;
         this.asQuery = requireNonNull(asQuery, "asQuery should not be null");
+        this.isOrAlter = isOrAlter;
     }
 
     @Override
     public SqlOperator getOperator() {
-        return OPERATOR;
+        return isOrAlter ? CREATE_OR_ALTER_OPERATOR : CREATE_OPERATOR;
     }
 
     @Override
@@ -148,9 +155,17 @@ public class SqlCreateMaterializedTable extends SqlCreate {
         return asQuery;
     }
 
+    public boolean isOrAlter() {
+        return isOrAlter;
+    }
+
     @Override
     public void unparse(SqlWriter writer, int leftPrec, int rightPrec) {
-        writer.keyword("CREATE MATERIALIZED TABLE");
+        writer.keyword("CREATE");
+        if (isOrAlter) {
+            writer.keyword("OR ALTER");
+        }
+        writer.keyword("MATERIALIZED TABLE");
         tableName.unparse(writer, leftPrec, rightPrec);
 
         if (tableConstraint != null) {

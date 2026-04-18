@@ -1220,6 +1220,40 @@ class Table(object):
         """
         return Table(self._j_table.toChangelog(to_expression_jarray(arguments)), self._t_env)
 
+    def from_changelog(self, *arguments: Expression) -> 'Table':
+        """
+        Converts this append-only table with an explicit operation code column into a
+        dynamic table using the built-in ``FROM_CHANGELOG`` process table function.
+
+        Each input row is expected to have a string operation code column (default: ``op``)
+        that indicates the change operation (e.g., INSERT, UPDATE_AFTER, UPDATE_BEFORE,
+        DELETE). The output table is a dynamic table backed by a changelog stream.
+
+        Example:
+        ::
+
+            >>> from pyflink.table.expressions import descriptor, map_
+            >>> # Default: reads 'op' column with standard change operation names
+            >>> result = cdc_stream.from_changelog()
+            >>> # With custom op column name
+            >>> result = cdc_stream.from_changelog(
+            ...     descriptor("operation").as_argument("op")
+            ... )
+            >>> # With custom op_mapping
+            >>> result = cdc_stream.from_changelog(
+            ...     descriptor("op").as_argument("op"),
+            ...     map_("c, r", "INSERT",
+            ...          "ub", "UPDATE_BEFORE",
+            ...          "ua", "UPDATE_AFTER",
+            ...          "d", "DELETE").as_argument("op_mapping")
+            ... )
+
+        :param arguments: Optional named arguments for ``op`` and ``op_mapping``.
+        :return: A dynamic :class:`~pyflink.table.Table` with the ``op`` column removed and
+                 proper change operation semantics.
+        """
+        return Table(self._j_table.fromChangelog(to_expression_jarray(arguments)), self._t_env)
+
 
 @PublicEvolving()
 class GroupedTable(object):

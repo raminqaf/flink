@@ -52,7 +52,8 @@ SELECT * FROM FROM_CHANGELOG(
       'ub', 'UPDATE_BEFORE',
       'ua', 'UPDATE_AFTER',
       'd', 'DELETE'
-  ]]
+  ],]
+  [invalid_op_handling => 'FAIL']
 )
 ```
 
@@ -62,7 +63,8 @@ SELECT * FROM FROM_CHANGELOG(
 |:-------------|:---------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `input`      | Yes      | The input table. Must be append-only.                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `op`         | No       | A `DESCRIPTOR` with a single column name for the operation code column. Defaults to `op`. The column must exist in the input table and be of type STRING.                                                                                                                                                                                                                                                                                                                                       |
-| `op_mapping` | No       | A `MAP<STRING, STRING>` mapping user-defined codes to Flink change operation names. Keys are user-defined codes (e.g., `'c'`, `'u'`, `'d'`), values are Flink change operation names (`INSERT`, `UPDATE_BEFORE`, `UPDATE_AFTER`, `DELETE`). Keys can contain comma-separated codes to map multiple codes to the same operation (e.g., `'c, r'`). When provided, only mapped codes are forwarded - unmapped codes are dropped. Each change operation may appear at most once across all entries. |
+| `op_mapping` | No       | A `MAP<STRING, STRING>` mapping user-defined codes to Flink change operation names. Keys are user-defined codes (e.g., `'c'`, `'u'`, `'d'`), values are Flink change operation names (`INSERT`, `UPDATE_BEFORE`, `UPDATE_AFTER`, `DELETE`). Keys can contain comma-separated codes to map multiple codes to the same operation (e.g., `'c, r'`). When provided, only mapped codes are forwarded — unmapped codes are handled according to `invalid_op_handling`. Each change operation may appear at most once across all entries. |
+| `invalid_op_handling` | No | Controls behavior when an input row contains an operation code not present in the `op_mapping`. Valid values: `FAIL` (default) — throw an exception, `LOG` — log a warning and drop the row, `SKIP` — silently drop the row. |
 
 #### Default op_mapping
 
@@ -119,6 +121,27 @@ SELECT * FROM FROM_CHANGELOG(
   op => DESCRIPTOR(operation)
 )
 -- The operation column named 'operation' is used instead of 'op'
+```
+
+#### Invalid operation code handling
+
+```sql
+-- Fail on unknown op codes (default behavior)
+SELECT * FROM FROM_CHANGELOG(
+  input => TABLE cdc_stream
+)
+
+-- Silently skip rows with unknown op codes
+SELECT * FROM FROM_CHANGELOG(
+  input => TABLE cdc_stream,
+  invalid_op_handling => 'SKIP'
+)
+
+-- Log a warning and skip rows with unknown op codes
+SELECT * FROM FROM_CHANGELOG(
+  input => TABLE cdc_stream,
+  invalid_op_handling => 'LOG'
+)
 ```
 
 #### Table API

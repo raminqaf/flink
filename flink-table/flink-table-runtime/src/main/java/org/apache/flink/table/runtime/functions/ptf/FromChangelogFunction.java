@@ -28,17 +28,20 @@ import org.apache.flink.table.functions.FunctionContext;
 import org.apache.flink.table.functions.SpecializedFunction.SpecializedContext;
 import org.apache.flink.table.functions.TableSemantics;
 import org.apache.flink.table.types.inference.CallContext;
+import org.apache.flink.table.types.inference.strategies.FromChangelogTypeStrategy.InvalidOpHandlingMode;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.types.ColumnList;
 import org.apache.flink.types.RowKind;
-
-import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+
+import javax.annotation.Nullable;
 
 /**
  * Runtime implementation of {@link BuiltInFunctionDefinitions#FROM_CHANGELOG}.
@@ -54,6 +57,7 @@ import java.util.stream.IntStream;
 public class FromChangelogFunction extends BuiltInProcessTableFunction<RowData> {
 
     private static final long serialVersionUID = 1L;
+    private static final Logger LOG = LoggerFactory.getLogger(FromChangelogFunction.class);
 
     private static final String DEFAULT_OP_COLUMN_NAME = "op";
     private static final Map<String, RowKind> DEFAULT_OP_MAPPING =
@@ -66,6 +70,7 @@ public class FromChangelogFunction extends BuiltInProcessTableFunction<RowData> 
     private final Map<String, RowKind> rawOpMap;
     private final int opColumnIndex;
     private final int[] outputIndices;
+    private final InvalidOpHandlingMode invalidOpHandlingMode;
 
     private transient HashMap<StringData, RowKind> opMap;
     private transient ProjectedRowData projectedOutput;
@@ -90,6 +95,12 @@ public class FromChangelogFunction extends BuiltInProcessTableFunction<RowData> 
                         .toArray();
 
         this.rawOpMap = buildOpMap(callContext);
+
+        this.invalidOpHandlingMode =
+                InvalidOpHandlingMode.valueOf(
+                        callContext
+                                .getArgumentValue(3, String.class)
+                                .orElse(InvalidOpHandlingMode.DEFAULT_MODE.name()));
     }
 
     @Override
@@ -133,11 +144,23 @@ public class FromChangelogFunction extends BuiltInProcessTableFunction<RowData> 
             final Context ctx,
             final RowData input,
             @Nullable final ColumnList op,
-            @Nullable final MapData opMapping) {
+            @Nullable final MapData opMapping,
+            @Nullable final StringData invalidOpHandling) {
         final StringData opCode = input.getString(opColumnIndex);
         final RowKind rowKind = opMap.get(opCode);
         if (rowKind == null) {
-            return;
+            switch (invalidOpHandlingMode) {
+                case SKIP:
+                    return;
+                case LOG:
+                    LOG.warn("Received invalid op code '{}'. Skipping the row.", opCode);
+                    return;
+                case FAIL:
+                    throw new RuntimeException(
+                            String.format(
+                                    "Received invalid op code '%s'. Defined op codes are: %s. Failing as configured.",
+                                    opCode, opMap.keySet()));
+            }
         }
 
         projectedOutput.replaceRow(input);

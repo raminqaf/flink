@@ -93,10 +93,10 @@ public class FromChangelogTestPrograms {
                                     + "op_mapping => MAP['c, r', 'INSERT', 'ub', 'UPDATE_BEFORE', 'ua', 'UPDATE_AFTER', 'd', 'DELETE'])")
                     .build();
 
-    public static final TableTestProgram UNMAPPED_CODES_DROPPED =
+    public static final TableTestProgram SKIP_INVALID_OP_HANDLING =
             TableTestProgram.of(
                             "from-changelog-unmapped-codes-dropped",
-                            "unmapped op codes are silently dropped")
+                            "unmapped op codes are silently dropped when configured")
                     .setupTableSource(
                             SourceTestStep.newBuilder("cdc_stream")
                                     .addSchema(SIMPLE_CDC_SCHEMA)
@@ -116,7 +116,8 @@ public class FromChangelogTestPrograms {
                                     .build())
                     .runSql(
                             "INSERT INTO sink SELECT * FROM FROM_CHANGELOG("
-                                    + "input => TABLE cdc_stream)")
+                                    + "input => TABLE cdc_stream,"
+                                    + "invalid_op_handling => 'SKIP')")
                     .build();
 
     /** Custom op column name via DESCRIPTOR. */

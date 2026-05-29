@@ -417,6 +417,40 @@ public class TestFileSystemCatalog extends AbstractCatalog {
     }
 
     @Override
+    public void convertTableToMaterializedTable(
+            ObjectPath tablePath,
+            CatalogTable originalTable,
+            CatalogMaterializedTable materializedTable,
+            List<TableChange> tableChanges)
+            throws TableNotExistException, CatalogException {
+        if (!tableExists(tablePath)) {
+            throw new TableNotExistException(getName(), tablePath);
+        }
+
+        Tuple4<Path, Path, Path, String> tableSchemaInfo =
+                getTableJsonInfo(tablePath, materializedTable);
+        Path tableSchemaPath = tableSchemaInfo.f1;
+        String jsonSchema = tableSchemaInfo.f3;
+        try {
+            if (!fs.exists(tableSchemaPath)) {
+                throw new CatalogException(
+                        String.format(
+                                "Table %s schema file %s doesn't exist.",
+                                tablePath, tableSchemaPath));
+            }
+            // overwrite the schema file with the materialized table definition
+            Path tableSchemaFilePath =
+                    tableSchemaFilePath(tableSchemaPath, tablePath.getObjectName());
+            try (FSDataOutputStream os =
+                    fs.create(tableSchemaFilePath, FileSystem.WriteMode.OVERWRITE)) {
+                os.write(jsonSchema.getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (IOException e) {
+            throw new CatalogException(String.format("Error converting table %s.", tablePath), e);
+        }
+    }
+
+    @Override
     public List<CatalogPartitionSpec> listPartitions(ObjectPath tablePath)
             throws TableNotExistException, TableNotPartitionedException, CatalogException {
         return Collections.emptyList();

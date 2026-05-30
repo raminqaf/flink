@@ -146,6 +146,19 @@ public class TableConfigOptions {
                                     + "the statement is expected to be executed atomically, the behavior of which depends on the actual DynamicTableSink.");
 
     @Documentation.TableOption(execMode = Documentation.ExecMode.BATCH_STREAMING)
+    public static final ConfigOption<Boolean> MATERIALIZED_TABLE_CONVERSION_FROM_TABLE_ENABLED =
+            key("table.materialized-table.conversion-from-table.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "If enabled, executing a CREATE OR ALTER MATERIALIZED TABLE on an existing regular table "
+                                    + "converts it in place to a materialized table, preserving identity and storage. "
+                                    + "This is a cluster-wide setting: it must be set in the cluster configuration "
+                                    + "(e.g. config.yaml); session-level SET has no effect. "
+                                    + "When disabled (the default), CREATE OR ALTER MATERIALIZED TABLE against a regular "
+                                    + "table is rejected.");
+
+    @Documentation.TableOption(execMode = Documentation.ExecMode.BATCH_STREAMING)
     public static final ConfigOption<List<ColumnExpansionStrategy>>
             TABLE_COLUMN_EXPANSION_STRATEGY =
                     key("table.column-expansion-strategy")

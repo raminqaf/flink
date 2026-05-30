@@ -264,6 +264,30 @@ public class GenericInMemoryCatalog extends AbstractCatalog {
         }
     }
 
+    @Override
+    public void convertTableToMaterializedTable(
+            ObjectPath tablePath,
+            CatalogTable originalTable,
+            CatalogMaterializedTable materializedTable,
+            List<TableChange> tableChanges)
+            throws TableNotExistException {
+        checkNotNull(tablePath);
+        checkNotNull(originalTable);
+        checkNotNull(materializedTable);
+
+        final CatalogBaseTable existing = tables.get(tablePath);
+        if (existing == null) {
+            throw new TableNotExistException(getName(), tablePath);
+        }
+        if (existing.getTableKind() != CatalogBaseTable.TableKind.TABLE) {
+            throw new CatalogException(
+                    String.format(
+                            "Cannot convert %s to a materialized table: existing entry has kind %s.",
+                            tablePath.getFullName(), existing.getTableKind()));
+        }
+        tables.put(tablePath, materializedTable.copy());
+    }
+
     // ------ tables and views ------
 
     @Override

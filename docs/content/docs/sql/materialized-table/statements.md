@@ -242,6 +242,7 @@ The `OR ALTER` clause provides create-or-update semantics:
 
 - **If the materialized table does not exist**: Creates a new materialized table with the specified options
 - **If the materialized table exists**: Modifies the query definition (behaves like `ALTER MATERIALIZED TABLE AS`)
+- **If a regular table with the same name exists**: Converts it in place into a materialized table, when enabled (see [Converting a Table to a Materialized Table](#converting-a-table-to-a-materialized-table))
 
 This is particularly useful in declarative deployment scenarios where you want to define the desired state without checking if the materialized table already exists.
 
@@ -259,6 +260,63 @@ The operation updates the materialized table similarly to [ALTER MATERIALIZED TA
 3. Starts a new refresh job from the beginning
 
 See [ALTER MATERIALIZED TABLE AS](#as-select_statement-1) for more details.
+
+## Converting a Table to a Materialized Table
+
+This lets you adopt a materialized table on top of a table that already exists, without dropping and recreating it.
+
+`CREATE OR ALTER MATERIALIZED TABLE` can convert an existing regular table into a materialized table in place. The catalog object keeps its identity and underlying storage. Its kind becomes materialized table, and its schema, options, query definition, freshness, and refresh mode are taken from the conversion statement, exactly as for a newly created materialized table. After the conversion, a refresh job is launched just as it is for a newly created materialized table.
+
+
+**Enabling conversion**
+
+Conversion is disabled by default. When the option is disabled, `CREATE OR ALTER MATERIALIZED TABLE` against a regular table is rejected.
+To enable it, set the following option in the cluster configuration file `config.yaml`:
+
+```yaml
+table.materialized-table.conversion-from-table.enabled: true
+```
+
+This is a cluster-wide setting: it must be set in the cluster configuration, and a session-level `SET` statement has no effect.
+
+**Schema, watermark, and primary key**
+
+The materialized table's schema is derived from the `CREATE OR ALTER MATERIALIZED TABLE` statement and its query, exactly as for a newly created materialized table. The source table's watermark and primary key are **not** carried over — declare them in the conversion statement if you want them. This keeps `CREATE OR ALTER MATERIALIZED TABLE` declarative and idempotent: running the same statement again produces the same materialized table.
+
+**Example**
+
+```sql
+-- An existing regular table that you now want to maintain as a materialized table
+CREATE TABLE user_spending (
+    user_id BIGINT,
+    total_amount BIGINT
+) WITH (
+    'connector' = '...'
+);
+
+-- Convert it in place; from now on it is refreshed by the query
+CREATE OR ALTER MATERIALIZED TABLE user_spending
+    AS SELECT
+        user_id,
+        SUM(amount) AS total_amount
+    FROM orders
+    GROUP BY user_id;
+```
+The conversion is one-way and cannot be undone. You can still use the result like a regular table: suspend it to stop the refresh job, then query it.
+From the example above:
+```sql
+-- Suspend the materialized table to stop the refresh job
+ALTER MATERIALIZED TABLE user_spending SUSPEND;
+
+-- Use the materialized table as a regular table
+SELECT * FROM user_spending;
+```
+
+
+<span class="label label-danger">Note</span>
+- The catalog must support in-place conversion; catalogs that do not implement it reject the statement.
+- Converting a view into a materialized table is not supported.
+- If the refresh job (continuous mode) or refresh workflow (full mode) cannot be started, the conversion is **not** rolled back: the table is left as a materialized table in `SUSPENDED` status. Fix the underlying issue and `RESUME` it.
 
 ## Examples
 

@@ -1,0 +1,19 @@
+== Abstract Syntax Tree ==
+LogicalSink(table=[default_catalog.default_database.MyCtasTable], fields=[a, out])
++- LogicalProject(a=[$0], out=[$1])
+   +- LogicalProject(a=[$0], out=[$1])
+      +- LogicalTableFunctionScan(invocation=[f(TABLE(#0) PARTITION BY($0), 1, DEFAULT(), DEFAULT())], rowType=[RecordType(INTEGER a, VARCHAR(2147483647) out)])
+         +- LogicalProject(a=[$0], b=[$1], c=[$2])
+            +- LogicalTableScan(table=[[default_catalog, default_database, MyTable]])
+
+== Optimized Physical Plan ==
+Sink(table=[default_catalog.default_database.MyCtasTable], fields=[a, out])
++- ProcessTableFunction(invocation=[f(TABLE(#0) PARTITION BY($0), 1, DEFAULT(), DEFAULT())], uid=[f], select=[a,out], rowType=[RecordType(INTEGER a, VARCHAR(2147483647) out)])
+   +- Exchange(distribution=[hash[a]])
+      +- DataStreamScan(table=[[default_catalog, default_database, MyTable]], fields=[a, b, c])
+
+== Optimized Execution Plan ==
+Sink(table=[default_catalog.default_database.MyCtasTable], fields=[a, out])
++- ProcessTableFunction(invocation=[f(TABLE(#0) PARTITION BY($0), 1, DEFAULT(), DEFAULT())], uid=[f], select=[a,out], rowType=[RecordType(INTEGER a, VARCHAR(2147483647) out)])
+   +- Exchange(distribution=[hash[a]])
+      +- DataStreamScan(table=[[default_catalog, default_database, MyTable]], fields=[a, b, c])

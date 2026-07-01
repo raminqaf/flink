@@ -30,6 +30,7 @@ import org.apache.flink.table.operations.ExplainOperation;
 import org.apache.flink.table.operations.Operation;
 import org.apache.flink.table.planner.calcite.FlinkPlannerImpl;
 import org.apache.flink.table.planner.parse.CalciteParser;
+import org.apache.flink.table.planner.plan.nodes.exec.stream.ProcessTableFunctionTestUtils.SetSemanticTableFunction;
 import org.apache.flink.table.planner.utils.TestSimpleDynamicTableSourceFactory;
 
 import org.apache.calcite.sql.SqlNode;
@@ -430,6 +431,53 @@ class SqlCTASNodeToOperationTest extends SqlNodeToOperationConversionTestBase {
         assertThat(operation).isInstanceOf(ExplainOperation.class);
         assertThat(((ExplainOperation) operation).getChild())
                 .isInstanceOf(CreateTableASOperation.class);
+    }
+
+    @Test
+    void testCreateTableAsWithSetSemanticPtf() {
+        functionCatalog.registerTemporarySystemFunction("f", new SetSemanticTableFunction(), false);
+
+        // Rewritten query: unchanged. The PTF output already matches the sink columns (a, out).
+        final String sql =
+                "CREATE TABLE tbl1 WITH ('connector' = '"
+                        + TestSimpleDynamicTableSourceFactory.IDENTIFIER()
+                        + "') AS SELECT * FROM f(r => TABLE t1 PARTITION BY a, i => 1)";
+
+        Operation ctas = parseAndConvert(sql);
+        Operation operation = ((CreateTableASOperation) ctas).getCreateTableOperation();
+        // The partition key `a` is passed through and the PTF appends its `out` column.
+        assertThat(operation)
+                .is(
+                        new HamcrestCondition<>(
+                                isCreateTableOperation(
+                                        withSchema(
+                                                Schema.newBuilder()
+                                                        .column("a", DataTypes.BIGINT().notNull())
+                                                        .column("out", DataTypes.STRING())
+                                                        .build()))));
+    }
+
+    @Test
+    void testCreateTableAsWithSetSemanticPtfAndReorderedColumns() {
+        functionCatalog.registerTemporarySystemFunction("f", new SetSemanticTableFunction(), false);
+
+        // Rewritten query: SELECT `out`, `a`. The PTF output (a, out) reordered to sink columns.
+        final String sql =
+                "CREATE TABLE tbl1 (`out`, `a`) WITH ('connector' = '"
+                        + TestSimpleDynamicTableSourceFactory.IDENTIFIER()
+                        + "') AS SELECT * FROM f(r => TABLE t1 PARTITION BY a, i => 1)";
+
+        Operation ctas = parseAndConvert(sql);
+        Operation operation = ((CreateTableASOperation) ctas).getCreateTableOperation();
+        assertThat(operation)
+                .is(
+                        new HamcrestCondition<>(
+                                isCreateTableOperation(
+                                        withSchema(
+                                                Schema.newBuilder()
+                                                        .column("out", DataTypes.STRING())
+                                                        .column("a", DataTypes.BIGINT().notNull())
+                                                        .build()))));
     }
 
     private Operation parseAndConvert(String sql) {

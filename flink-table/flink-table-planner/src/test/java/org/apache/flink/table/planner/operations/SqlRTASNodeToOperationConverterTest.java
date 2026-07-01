@@ -31,6 +31,7 @@ import org.apache.flink.table.operations.ReplaceTableAsOperation;
 import org.apache.flink.table.operations.ddl.CreateTableOperation;
 import org.apache.flink.table.planner.calcite.FlinkPlannerImpl;
 import org.apache.flink.table.planner.parse.CalciteParser;
+import org.apache.flink.table.planner.plan.nodes.exec.stream.ProcessTableFunctionTestUtils.SetSemanticTableFunction;
 import org.apache.flink.table.types.AbstractDataType;
 
 import org.apache.calcite.sql.SqlNode;
@@ -288,6 +289,47 @@ class SqlRTASNodeToOperationConverterTest extends SqlNodeToOperationConversionTe
         assertThat(operation).isInstanceOf(ExplainOperation.class);
         assertThat(((ExplainOperation) operation).getChild())
                 .isInstanceOf(ReplaceTableAsOperation.class);
+    }
+
+    @Test
+    void testReplaceTableAsWithSetSemanticPtf() {
+        functionCatalog.registerTemporarySystemFunction("f", new SetSemanticTableFunction(), false);
+
+        String tableName = "replace_table";
+        // Rewritten query: unchanged. The PTF output already matches the sink columns (a, out).
+        String sql =
+                "REPLACE TABLE "
+                        + tableName
+                        + " WITH ('k1' = 'v1', 'k2' = 'v2')"
+                        + " as SELECT * FROM f(r => TABLE t1 PARTITION BY a, i => 1)";
+        // The partition key `a` is passed through and the PTF appends its `out` column.
+        Schema tableSchema =
+                Schema.newBuilder()
+                        .column("a", DataTypes.BIGINT().notNull())
+                        .column("out", DataTypes.STRING())
+                        .build();
+
+        testCommonReplaceTableAs(sql, tableName, null, tableSchema, null, Collections.emptyList());
+    }
+
+    @Test
+    void testReplaceTableAsWithSetSemanticPtfAndReorderedColumns() {
+        functionCatalog.registerTemporarySystemFunction("f", new SetSemanticTableFunction(), false);
+
+        String tableName = "replace_table";
+        // Rewritten query: SELECT `out`, `a`. The PTF output (a, out) reordered to sink columns.
+        String sql =
+                "REPLACE TABLE "
+                        + tableName
+                        + " (`out`, `a`) WITH ('k1' = 'v1', 'k2' = 'v2')"
+                        + " as SELECT * FROM f(r => TABLE t1 PARTITION BY a, i => 1)";
+        Schema tableSchema =
+                Schema.newBuilder()
+                        .column("out", DataTypes.STRING())
+                        .column("a", DataTypes.BIGINT().notNull())
+                        .build();
+
+        testCommonReplaceTableAs(sql, tableName, null, tableSchema, null, Collections.emptyList());
     }
 
     private void testCommonReplaceTableAs(

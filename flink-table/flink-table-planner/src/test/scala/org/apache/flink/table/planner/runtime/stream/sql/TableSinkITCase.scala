@@ -22,6 +22,7 @@ import org.apache.flink.core.execution.CheckpointingMode
 import org.apache.flink.table.planner.expressions.utils.TestNonDeterministicUdf
 import org.apache.flink.table.planner.factories.TestValuesTableFactory
 import org.apache.flink.table.planner.factories.TestValuesTableFactory.changelogRow
+import org.apache.flink.table.planner.plan.nodes.exec.stream.ProcessTableFunctionTestUtils.SetSemanticTableFunction
 import org.apache.flink.table.planner.runtime.utils._
 import org.apache.flink.table.planner.runtime.utils.BatchTestBase.row
 import org.apache.flink.table.planner.runtime.utils.StreamingWithStateTestBase.StateBackendMode
@@ -338,6 +339,64 @@ class TableSinkITCase(mode: StateBackendMode) extends StreamingWithStateTestBase
       () => tEnv.executeSql("CREATE TABLE MyCtasTable AS SELECT `person`, `votes` FROM src"))
       .hasRootCauseMessage(
         "Table options do not contain an option key 'connector' for discovering a connector.")
+  }
+
+  @TestTemplate
+  def testCreateTableAsSelectOverSetSemanticPtf(): Unit = {
+    tEnv.createTemporarySystemFunction("f", classOf[SetSemanticTableFunction])
+    val dataId = TestValuesTableFactory.registerData(Seq(row("Bob", 12), row("Alice", 42)))
+    tEnv.executeSql(s"""
+                       |CREATE TABLE ptf_src (name STRING, score INT) WITH (
+                       |  'connector' = 'values',
+                       |  'bounded' = 'true',
+                       |  'data-id' = '$dataId'
+                       |)
+                       |""".stripMargin)
+    tEnv
+      .executeSql("""
+                    |CREATE TABLE MyCtasTable
+                    | WITH (
+                    |   'connector' = 'values'
+                    |) AS
+                    |  SELECT * FROM f(r => TABLE ptf_src PARTITION BY name, i => 1)
+                    |""".stripMargin)
+      .await()
+
+    // The partition key `name` is passed through and the PTF appends its `out` column.
+    assertThat(tEnv.from("MyCtasTable").getResolvedSchema.getColumnNames.toList)
+      .isEqualTo(List("name", "out"))
+    val actual = TestValuesTableFactory.getResultsAsStrings("MyCtasTable")
+    val expected = List("+I[Bob, {+I[Bob, 12], 1}]", "+I[Alice, {+I[Alice, 42], 1}]")
+    assertThat(actual.sorted).isEqualTo(expected.sorted)
+  }
+
+  @TestTemplate
+  def testCreateTableAsSelectOverSetSemanticPtfWithReorderedColumns(): Unit = {
+    tEnv.createTemporarySystemFunction("f", classOf[SetSemanticTableFunction])
+    val dataId = TestValuesTableFactory.registerData(Seq(row("Bob", 12), row("Alice", 42)))
+    tEnv.executeSql(s"""
+                       |CREATE TABLE ptf_src (name STRING, score INT) WITH (
+                       |  'connector' = 'values',
+                       |  'bounded' = 'true',
+                       |  'data-id' = '$dataId'
+                       |)
+                       |""".stripMargin)
+    // Rewritten query: SELECT `out`, `name`. The PTF output (name, out) reordered to sink columns.
+    tEnv
+      .executeSql("""
+                    |CREATE TABLE MyCtasTable (`out`, `name`)
+                    | WITH (
+                    |   'connector' = 'values'
+                    |) AS
+                    |  SELECT * FROM f(r => TABLE ptf_src PARTITION BY name, i => 1)
+                    |""".stripMargin)
+      .await()
+
+    assertThat(tEnv.from("MyCtasTable").getResolvedSchema.getColumnNames.toList)
+      .isEqualTo(List("out", "name"))
+    val actual = TestValuesTableFactory.getResultsAsStrings("MyCtasTable")
+    val expected = List("+I[{+I[Bob, 12], 1}, Bob]", "+I[{+I[Alice, 42], 1}, Alice]")
+    assertThat(actual.sorted).isEqualTo(expected.sorted)
   }
 
   @TestTemplate

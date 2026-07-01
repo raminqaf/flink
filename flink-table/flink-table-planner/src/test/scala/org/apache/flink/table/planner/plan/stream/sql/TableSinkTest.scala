@@ -26,6 +26,7 @@ import org.apache.flink.table.connector.ChangelogMode
 import org.apache.flink.table.connector.source.{DynamicTableSource, ScanTableSource}
 import org.apache.flink.table.data.RowData
 import org.apache.flink.table.factories.{DynamicTableFactory, DynamicTableSourceFactory}
+import org.apache.flink.table.planner.plan.nodes.exec.stream.ProcessTableFunctionTestUtils.SetSemanticTableFunction
 import org.apache.flink.table.planner.utils.{TableTestBase, TableTestUtil, TestingTableEnvironment}
 
 import org.assertj.core.api.Assertions
@@ -59,6 +60,8 @@ class TableSinkTest extends TableTestBase {
       |  'connector' = 'values'
       |)
       |""".stripMargin)
+
+  util.tableEnv.createTemporarySystemFunction("f", classOf[SetSemanticTableFunction])
 
   @Test
   def testInsertWithTargetColumnsAndSqlHint(): Unit = {
@@ -888,18 +891,27 @@ class TableSinkTest extends TableTestBase {
 
   @Test
   def testExplainCreateTableAsSelectWithColumnsInCreateAndQueryParts(): Unit = {
+    // Rewritten query: NULL AS `votes`, a, b, NULL AS `metadata_col` (computed/virtual excluded).
     val actual =
-      util.tableEnv.explainSql("""
-                                 |CREATE TABLE MyCtasTable(`votes` INT, `votes_2x` AS `b` * 2)
-                                 | WITH (
-                                 |   'connector' = 'values'
-                                 |) AS
-                                 |  SELECT
-                                 |    `a`,
-                                 |    `b`
-                                 |  FROM
-                                 |    MyTable
-                                 |""".stripMargin)
+      util.tableEnv.explainSql(
+        """
+          |CREATE TABLE MyCtasTable(
+          |  `votes` INT,
+          |  `votes_2x` AS `b` * 2,
+          |  `metadata_col` BIGINT METADATA,
+          |  `virtual_col` STRING METADATA VIRTUAL
+          |)
+          | WITH (
+          |   'connector' = 'values',
+          |   'readable-metadata' = 'metadata_col:BIGINT, virtual_col:STRING',
+          |   'writable-metadata' = 'metadata_col:BIGINT'
+          |) AS
+          |  SELECT
+          |    `a`,
+          |    `b`
+          |  FROM
+          |    MyTable
+          |""".stripMargin)
 
     val expected =
       TableTestUtil.readFromResource("/explain/testExplainCtasWithColumnsInCreateAndQueryParts.out")
@@ -909,24 +921,103 @@ class TableSinkTest extends TableTestBase {
 
   @Test
   def testExplainReplaceTableAsSelectWithColumnsInCreateAndQueryParts(): Unit = {
+    // Rewritten query: NULL AS `votes`, a, b, NULL AS `metadata_col` (computed/virtual excluded).
     val actual =
-      util.tableEnv.explainSql("""
-                                 |REPLACE TABLE MyCtasTable(`votes` INT, `votes_2x` AS `b` * 2)
-                                 | WITH (
-                                 |   'connector' = 'values'
-                                 |) AS
-                                 |  SELECT
-                                 |    `a`,
-                                 |    `b`
-                                 |  FROM
-                                 |    MyTable
-                                 |""".stripMargin)
+      util.tableEnv.explainSql(
+        """
+          |REPLACE TABLE MyCtasTable(
+          |  `votes` INT,
+          |  `votes_2x` AS `b` * 2,
+          |  `metadata_col` BIGINT METADATA,
+          |  `virtual_col` STRING METADATA VIRTUAL
+          |)
+          | WITH (
+          |   'connector' = 'values',
+          |   'readable-metadata' = 'metadata_col:BIGINT, virtual_col:STRING',
+          |   'writable-metadata' = 'metadata_col:BIGINT'
+          |) AS
+          |  SELECT
+          |    `a`,
+          |    `b`
+          |  FROM
+          |    MyTable
+          |""".stripMargin)
 
     // Same as CTAS
     val expected =
       TableTestUtil.readFromResource("/explain/testExplainCtasWithColumnsInCreateAndQueryParts.out")
 
     assertEquals(TableTestUtil.replaceStageId(expected), TableTestUtil.replaceStageId(actual))
+  }
+
+  @Test
+  def testExplainCreateTableAsSelectWithSetSemanticPtf(): Unit = {
+    // Rewritten query: unchanged. The PTF output already matches the sink columns (a, out).
+    val actual =
+      util.tableEnv.explainSql("""
+                                 |CREATE TABLE MyCtasTable
+                                 | WITH (
+                                 |   'connector' = 'values'
+                                 |) AS
+                                 |  SELECT * FROM f(r => TABLE MyTable PARTITION BY a, i => 1)
+                                 |""".stripMargin)
+
+    val expected = TableTestUtil.readFromResource("/explain/testExplainCtasWithSetSemanticPtf.out")
+
+    assertEquals(TableTestUtil.replaceStageId(expected), TableTestUtil.replaceStageId(actual))
+  }
+
+  @Test
+  def testExplainReplaceTableAsSelectWithSetSemanticPtf(): Unit = {
+    // Rewritten query: unchanged. The PTF output already matches the sink columns (a, out).
+    val actual =
+      util.tableEnv.explainSql("""
+                                 |REPLACE TABLE MyCtasTable
+                                 | WITH (
+                                 |   'connector' = 'values'
+                                 |) AS
+                                 |  SELECT * FROM f(r => TABLE MyTable PARTITION BY a, i => 1)
+                                 |""".stripMargin)
+
+    // Same as CTAS
+    val expected = TableTestUtil.readFromResource("/explain/testExplainCtasWithSetSemanticPtf.out")
+
+    assertEquals(TableTestUtil.replaceStageId(expected), TableTestUtil.replaceStageId(actual))
+  }
+
+  @Test
+  def testExplainCreateTableAsSelectWithCteOverSetSemanticPtf(): Unit = {
+    // Rewritten query: unchanged. The CTE-wrapped PTF already yields (a, out).
+    val actual =
+      util.tableEnv.explainSql("""
+                                 |CREATE TABLE MyCtasTable
+                                 | WITH (
+                                 |   'connector' = 'values'
+                                 |) AS
+                                 |  WITH cte AS (
+                                 |    SELECT * FROM f(r => TABLE MyTable PARTITION BY a, i => 1)
+                                 |  )
+                                 |  SELECT * FROM cte
+                                 |""".stripMargin)
+
+    val expected =
+      TableTestUtil.readFromResource("/explain/testExplainCtasWithCteOverSetSemanticPtf.out")
+
+    assertEquals(TableTestUtil.replaceStageId(expected), TableTestUtil.replaceStageId(actual))
+  }
+
+  @Test
+  def testCreateTableAsSelectWithSetSemanticPtfAndNotNullColumnThrows(): Unit = {
+    // Rewritten query would need NULL AS `extra`, a, out; rejected because `extra` is NOT NULL.
+    assertThatThrownBy(
+      () => util.tableEnv.explainSql("""
+                                       |CREATE TABLE MyCtasTable(`extra` INT NOT NULL)
+                                       | WITH (
+                                       |   'connector' = 'values'
+                                       |) AS
+                                       |  SELECT * FROM f(r => TABLE MyTable PARTITION BY a, i => 1)
+                                       |""".stripMargin))
+      .hasMessageContaining("Column 'extra' has no default value and does not allow NULLs.")
   }
 
   @Test
